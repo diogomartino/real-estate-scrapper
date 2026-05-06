@@ -1,0 +1,27 @@
+{
+  "name": "casas",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "dev": "bun ./src/index.ts notify",
+    "scrap": "bun ./src/index.ts scrap",
+    "notify": "bun ./src/index.ts notify",
+    "tryproxy": "bun ./src/try-proxy.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "cheerio": "^1.2.0",
+    "crawlee": "^3.16.0",
+    "playwright": "^1.59.1",
+    "socks-proxy-agent": "^10.0.0",
+    "user-agents": "^2.1.50",
+    "zod": "^4.4.2"
+  }
+}

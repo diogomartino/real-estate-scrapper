@@ -10,28 +10,19 @@ import {
   type TSearchOptions,
 } from "../types";
 import {
-  getEncodedProperty,
+  getDescription,
+  getInfoByLabel,
   getLastUpdated,
   getPhotos,
+  getPrice,
   getPublicIdFromUrl,
+  getTitle,
 } from "./helpers";
 
-type TCasaYesSearchResults = {
-  totalPages: number;
-};
-
-type TCasaYesNextData = {
-  props?: {
-    pageProps?: {
-      initialSearchResultsInfo?: TCasaYesSearchResults;
-    };
-  };
-};
-
-class CasaYes extends BaseScrapper implements IScrapper {
+class CustoJusto extends BaseScrapper implements IScrapper {
   constructor() {
     super();
-    this.id = "casa-yes";
+    this.id = "custo-justo";
   }
 
   private getMinimumTypology = (types: string[]): string => {
@@ -47,26 +38,6 @@ class CasaYes extends BaseScrapper implements IScrapper {
     return `t${minimumBedrooms}`;
   };
 
-  private getSearchResults = (html: string): TCasaYesSearchResults => {
-    const $ = cheerio.load(html);
-    const nextData = $("#__NEXT_DATA__").text().trim();
-
-    if (!nextData) {
-      throw new Error("Could not find Casa Yes __NEXT_DATA__ payload");
-    }
-
-    const parsedData = JSON.parse(nextData) as TCasaYesNextData;
-    const searchResults = parsedData.props?.pageProps?.initialSearchResultsInfo;
-
-    if (!searchResults) {
-      throw new Error(
-        "Could not find Casa Yes search results in __NEXT_DATA__",
-      );
-    }
-
-    return searchResults;
-  };
-
   private getPropertyPayload = ($: cheerio.CheerioAPI): Record<string, any> => {
     const payload = $("script[type='application/json']").first().text().trim();
 
@@ -78,85 +49,100 @@ class CasaYes extends BaseScrapper implements IScrapper {
   };
 
   private getRequestedPageNumber = (url: string): number => {
-    const pageValue = new URL(url).searchParams.get("p");
+    const pageValue = new URL(url).searchParams.get("o");
     const pageNumber = Number.parseInt(pageValue ?? "1", 10);
 
     return Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber : 1;
+  };
+
+  private replacePageNumber = (url: string, pageNumber: number): string => {
+    const newUrl = new URL(url);
+
+    newUrl.searchParams.set("o", pageNumber.toString());
+
+    return newUrl.toString();
   };
 
   private getPropertyUrls = (html: string): string[] => {
     const $ = cheerio.load(html);
     const propertyUrls = new Set<string>();
 
-    $("a[data-id='listing-card-link']").each((_, element) => {
+    $("a").each((_, element) => {
       const href = $(element).attr("href")?.trim();
 
       if (!href) {
         return;
       }
 
-      propertyUrls.add(new URL(href, "https://casayes.pt").toString());
+      if (href.includes("/imobiliario/apartamentos/")) {
+        propertyUrls.add(
+          new URL(href, "https://www.custojusto.pt/").toString(),
+        );
+      }
     });
 
     return Array.from(propertyUrls);
   };
 
   public getPagination = async (url: string): Promise<TPaginationResult> => {
-    const html = await scrapper.getRenderedHtml(url, {
-      waitUntil: "load",
-      waitForSelector: `[data-id="listing-card-link"]`,
-      waitForLoadState: "networkidle",
-      postNavigationDelayMs: 1000,
+    const html = await scrapper.getHtml(url);
+
+    const $ = cheerio.load(html);
+    const links = new Set<string>();
+
+    $("a").each((_, element) => {
+      const href = $(element).attr("href")?.trim();
+
+      if (!href) {
+        return;
+      }
+
+      if (href.includes("/imobiliario/apartamentos/")) {
+        links.add(new URL(href, "https://www.custojusto.pt/").toString());
+      }
     });
 
-    const searchResults = this.getSearchResults(html);
+    const nextPageButton = $(`[aria-label="Próximo"]`);
+    const hasNextPage = nextPageButton.length > 0;
 
-    const pageNumber = this.getRequestedPageNumber(url);
-    const links = this.getPropertyUrls(html);
-    const hasNextPage = pageNumber < searchResults.totalPages;
+    const currentPageNumber = this.getRequestedPageNumber(url);
+
     const nextPageUrl = hasNextPage
-      ? (() => {
-          const nextUrl = new URL(url);
-
-          nextUrl.searchParams.set("p", (pageNumber + 1).toString());
-
-          return nextUrl.toString();
-        })()
+      ? this.replacePageNumber(url, currentPageNumber + 1)
       : undefined;
 
     return {
-      links,
-      nextPageUrl,
+      links: Array.from(links),
+      nextPageUrl: nextPageUrl
+        ? new URL(nextPageUrl, url).toString()
+        : undefined,
     };
   };
 
   public scrapProperty = async (url: string): Promise<TProperty> => {
     const uuid = getPublicIdFromUrl(url);
-
-    if (!uuid) {
-      throw new Error(`Could not extract Casa Yes public ID from URL: ${url}`);
-    }
-
-    const html = await scrapper.getRenderedHtml(url);
+    const html = await scrapper.getHtml(url);
     const $ = cheerio.load(html);
-    const lastUpdated = getLastUpdated($);
-    const parsedData = this.getPropertyPayload($);
-    const encodedProperty = getEncodedProperty(
-      parsedData?.props?.pageProps?.listingEncoded,
-    );
 
-    const graph = parsedData?.props?.pageProps?.jsonLd?.["@graph"]?.[0];
+    const title = getTitle($);
+    const price = getPrice($);
+    const description = getDescription($);
+    const ref = getInfoByLabel($, "Id do anúncio");
+    const location = getInfoByLabel($, "Freguesia");
+    const energyEfficiency = getInfoByLabel($, "Classe Energética");
     const photos = getPhotos($);
+    const lastUpdated = getLastUpdated($);
 
     return property.parse({
       portal: this.id,
       uuid,
-      title: graph?.name,
-      description: graph?.description,
-      price: graph?.mainEntity?.price,
-      location: graph?.name?.split(" em ").slice(1).join(" em "),
+      ref,
+      title,
+      description: description || undefined,
+      price,
+      location,
       link: url,
-      energyEfficiency: encodedProperty?.listingEnergyEfficiencyLabel,
+      energyEfficiency,
       photos: photos.length > 0 ? photos : undefined,
       lastUpdated,
     });
@@ -176,6 +162,7 @@ class CasaYes extends BaseScrapper implements IScrapper {
     while (nextPageUrl) {
       const { links, nextPageUrl: newNextPageUrl } =
         await this.getPagination(nextPageUrl);
+
       let shouldStop = false;
 
       this.log(`Found ${links.length} properties on page ${page}`);
@@ -234,38 +221,15 @@ class CasaYes extends BaseScrapper implements IScrapper {
     return properties;
   };
 
-  public buildUrl = ({
-    type,
-    minPrice,
-    maxPrice,
-    city,
-  }: TSearchOptions): string => {
-    const cityConfig = {
-      districtSlug: "porto",
-      citySlug: city,
-      cityLabel: city,
-      propertyTypes: "1,2,10",
-    };
-
+  public buildUrl = (_: TSearchOptions): string => {
     const url = new URL(
-      `https://casayes.pt/pt/comprar/casaseapartamentos/${cityConfig.districtSlug}/${cityConfig.citySlug}/r/r/${this.getMinimumTypology(type)},garagem,p${minPrice}_${maxPrice}`,
+      `https://www.custojusto.pt/porto/gondomar/imobiliario/apartamentos-venda?ps=11&pe=15&ros=5&roe=7`,
     );
-
-    url.searchParams.set(
-      "f",
-      JSON.stringify({
-        rg: cityConfig.cityLabel,
-        lt: cityConfig.propertyTypes,
-      }),
-    );
-
-    url.searchParams.set("p", "1");
-    url.searchParams.set("o", "-PublishingDate");
 
     return url.toString();
   };
 }
 
-const casaYes = new CasaYes();
+const custoJusto = new CustoJusto();
 
-export { casaYes };
+export { custoJusto };

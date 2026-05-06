@@ -10,7 +10,7 @@ const PROXY_PASSWORD = process.env.PROXY_PASSWORD;
 
 const PROXY_URL = `http://${PROXY_USERNAME}:${PROXY_PASSWORD}@${PROXY_HOST}:${PROXY_PORT}`;
 
-const TOO_MANY_REQUESTS_STATUS = 429;
+const TOO_MANY_REQUESTS_STATUS = [429, 403];
 const SERVICE_UNAVAILABLE_STATUS = 503;
 const FETCH_INTERVAL_MS = 1000;
 const MAX_SERVICE_UNAVAILABLE_RETRIES = 10;
@@ -18,6 +18,9 @@ const SERVICE_UNAVAILABLE_RETRY_STEP_MS = 2000;
 const DEFAULT_GOTO_TIMEOUT_MS = 60_000;
 const DEFAULT_WAIT_FOR_SELECTOR_TIMEOUT_MS = 30_000;
 const DEFAULT_WAIT_FOR_LOAD_STATE_TIMEOUT_MS = 30_000;
+
+const isTooManyRequestsStatus = (status: number | undefined): boolean =>
+  status !== undefined ? TOO_MANY_REQUESTS_STATUS.includes(status) : false;
 
 type GotoWaitUntilState =
   | "commit"
@@ -249,7 +252,7 @@ class Scrapper {
 
     let response = await this.fetchHtmlWithRetry(url, useProxy);
 
-    if (!useProxy && response.status === TOO_MANY_REQUESTS_STATUS) {
+    if (!useProxy && isTooManyRequestsStatus(response.status)) {
       this.enableProxyForHost(url);
       response = await this.fetchHtmlWithRetry(url, true);
     }
@@ -273,7 +276,7 @@ class Scrapper {
       options,
     );
 
-    if (!useProxy && renderedPage.status === TOO_MANY_REQUESTS_STATUS) {
+    if (!useProxy && isTooManyRequestsStatus(renderedPage.status)) {
       this.enableProxyForHost(url);
       await this.closeBrowser(false);
       renderedPage = await this.getRenderedHtmlWithBrowser(url, true, options);

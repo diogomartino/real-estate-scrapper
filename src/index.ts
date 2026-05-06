@@ -1,5 +1,6 @@
-import { CASA_YES_DEFAULT_SEARCH_OPTIONS, casaYes } from "./casa-yes";
+import { casaYes } from "./casa-yes";
 import { casasSapo } from "./casas-sapo";
+import { custoJusto } from "./custo-justo";
 import { buildTelegramMessages, getRunBehavior, isRunMode } from "./helpers";
 import { idealista } from "./idealista";
 import { imovirtual } from "./imovirtual";
@@ -37,7 +38,7 @@ await casasSapo.scrap({
 });
 
 await casaYes.scrap({
-  ...CASA_YES_DEFAULT_SEARCH_OPTIONS,
+  ...DEFAULT_SEARCH_OPTIONS,
   ...behavior,
   onNewProperty,
 });
@@ -55,35 +56,38 @@ await remax.scrap({
   onNewProperty,
 });
 
-// const allProperties = [
-//   ...casasSapoProperties,
-//   ...casaYesProperties,
-//   ...superCasaProperties,
-//   ...remaxProperties,
-// ];
+await custoJusto.scrap({
+  ...DEFAULT_SEARCH_OPTIONS,
+  ...behavior,
+  onNewProperty,
+});
+
+scrapper.close();
 
 console.log(`New properties found: ${newProperties.length}`);
 
-if (newProperties.length > 0) {
-  newProperties.forEach((property) => {
-    console.log(`- ${property.title} (${property.link})`);
-  });
+if (mode === "notify") {
+  if (newProperties.length > 0) {
+    newProperties.forEach((property) => {
+      console.log(`- ${property.title} (${property.link})`);
+    });
 
-  const messages = buildTelegramMessages(newProperties);
+    const messages = buildTelegramMessages(newProperties);
 
-  for (const message of messages) {
-    await notifier.sendTelegramNotification(message);
+    for (const message of messages) {
+      await notifier.sendTelegramNotification(message);
+    }
+  } else {
+    console.log("No new properties found.");
+
+    await notifier.sendTelegramNotification(
+      `Não foram encontradas novas propriedades. Última verificação: ${new Date().toLocaleString("pt-PT")}`,
+    );
   }
-} else {
-  console.log("No new properties found.");
 
   await notifier.sendTelegramNotification(
-    `Não foram encontradas novas propriedades. Última verificação: ${new Date().toLocaleString("pt-PT")}`,
+    "===================================",
   );
 }
-
-await notifier.sendTelegramNotification("===================================");
-
-await scrapper.close();
 
 process.exit(0);

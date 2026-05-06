@@ -14,6 +14,7 @@ const property = z.object({
     "remax",
     "idealista",
     "imovirtual",
+    "custo-justo",
   ]),
   uuid: z.string(),
   ref: z.string().optional(),

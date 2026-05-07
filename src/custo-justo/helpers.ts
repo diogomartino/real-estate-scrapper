@@ -110,7 +110,7 @@ const getLastUpdated = ($: cheerio.CheerioAPI): number | undefined => {
     dez: 11,
   };
 
-  if (!monthRaw || !monthMap[monthRaw]) {
+  if (!monthRaw || monthMap[monthRaw] === undefined) {
     return undefined;
   }
 

@@ -9,6 +9,7 @@ import { remax } from "./remax";
 import { scrapper } from "./scrapper";
 import { superCasa } from "./super-casa";
 import type { TProperty, TSearchOptions } from "./types";
+import { zome } from "./zome";
 
 const DEFAULT_SEARCH_OPTIONS: TSearchOptions = {
   minPrice: 230000,
@@ -30,6 +31,12 @@ const newProperties: TProperty[] = [];
 const onNewProperty = (property: TProperty) => {
   newProperties.push(property);
 };
+
+await zome.scrap({
+  ...DEFAULT_SEARCH_OPTIONS,
+  ...behavior,
+  onNewProperty,
+});
 
 await casasSapo.scrap({
   ...DEFAULT_SEARCH_OPTIONS,

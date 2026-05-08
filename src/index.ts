@@ -5,6 +5,7 @@ import { buildTelegramMessages, getRunBehavior, isRunMode } from "./helpers";
 import { idealista } from "./idealista";
 import { imovirtual } from "./imovirtual";
 import { notifier } from "./notifier";
+import { properstar } from "./properstar";
 import { remax } from "./remax";
 import { scrapper } from "./scrapper";
 import { superCasa } from "./super-casa";
@@ -64,6 +65,12 @@ await remax.scrap({
 });
 
 await custoJusto.scrap({
+  ...DEFAULT_SEARCH_OPTIONS,
+  ...behavior,
+  onNewProperty,
+});
+
+await properstar.scrap({
   ...DEFAULT_SEARCH_OPTIONS,
   ...behavior,
   onNewProperty,

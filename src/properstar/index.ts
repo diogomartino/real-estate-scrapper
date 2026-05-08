@@ -1,4 +1,3 @@
-import chalk from "chalk";
 import {
   property,
   type IScrapper,
@@ -8,96 +7,71 @@ import {
 } from "../types";
 import { BaseScrapper, scrapper } from "../scrapper";
 import * as cheerio from "cheerio";
-import {
-  getEnergyEfficiency,
-  getLocation,
-  getPhotos,
-  getPrice,
-} from "./helpers";
+import { getPhotos, getPrice } from "./helpers";
 import { db } from "../database";
 
-class Zome extends BaseScrapper implements IScrapper {
+class Properstar extends BaseScrapper implements IScrapper {
   constructor() {
     super();
-    this.id = "zome";
+    this.id = "properstar";
   }
 
   private getUuidFromUrl = (url: string): string | null => {
-    const path = new URL(url).pathname;
-    const parts = path.split("/").filter(Boolean);
-    const lastPart = parts.at(-1) ?? null;
+    const parts = url.split("/").filter(Boolean);
 
-    if (lastPart && /^[A-Za-z0-9]+$/.test(lastPart)) {
-      return lastPart;
+    return parts.at(-1) ?? null;
+  };
+
+  private getPageFromUrl = (url: string): number => {
+    const pageParam = new URL(url).searchParams.get("p");
+    const page = Number(pageParam);
+
+    return Number.isFinite(page) && page > 0 ? page : 1;
+  };
+
+  private getNextPageUrl = (
+    $: cheerio.CheerioAPI,
+    url: string,
+  ): string | undefined => {
+    const nextPageButton = $(`[aria-label="Next page"]`).first();
+
+    if (nextPageButton.length === 0 || nextPageButton.is(":disabled")) {
+      return undefined;
     }
 
-    const slugMatch = lastPart?.match(/-([A-Za-z0-9]+)$/);
+    const nextPageUrl = new URL(url);
+    const currentPage = this.getPageFromUrl(url);
 
-    if (slugMatch?.[1]) {
-      return slugMatch[1];
-    }
+    nextPageUrl.searchParams.set("p", String(currentPage + 1));
 
-    return null;
+    return nextPageUrl.toString();
   };
 
   public getPagination = async (url: string): Promise<TPaginationResult> => {
     const html = await scrapper.getRenderedHtml(url, {
       waitUntil: "load",
-      waitForSelector: `[aria-label="Pagination"]`,
+      waitForSelector: `article`,
       waitForLoadState: "domcontentloaded",
-      onAfterGoto: async (page) => {
-        await page.waitForSelector(`img[alt="Imagem"]`, {
-          state: "visible",
-          timeout: 10000,
-        });
-
-        const firstImage = await page.$(`img[alt="Imagem"]`);
-
-        if (firstImage) {
-          await firstImage
-            .waitForElementState("stable", { timeout: 5000 })
-            .finally(() => {})
-            .catch(() => {});
-        }
-      },
     });
 
     const $ = cheerio.load(html);
     const links = new Set<string>();
 
-    $(".ListingPreviewItem").each((_, element) => {
+    $("article").each((_, element) => {
       const anchor = $(element).find("a").first();
+
       const href = anchor.attr("href")?.trim();
 
-      if (href && href.includes("apartamento")) {
-        links.add(new URL(href, url).toString());
+      if (!href) {
+        return;
       }
+
+      links.add(new URL(href, url).toString());
     });
-
-    const nextPageLink = $(`[aria-label="Go to next page"]`);
-    const isDisabled = nextPageLink.attr("aria-disabled") === "true";
-    const hasMorePages = !isDisabled && nextPageLink.length > 0;
-
-    let nextPageUrl: string | undefined;
-
-    if (hasMorePages) {
-      const urlObj = new URL(url);
-      const pathSegments = urlObj.pathname.split("/").filter(Boolean);
-      const lastSegment = pathSegments[pathSegments.length - 1];
-      const match = lastSegment?.match(/p-(\d+)/);
-
-      if (match) {
-        const currentPage = Number(match[1]);
-        const nextPage = currentPage + 1;
-        pathSegments[pathSegments.length - 1] = `p-${nextPage}`;
-        urlObj.pathname = "/" + pathSegments.join("/");
-        nextPageUrl = urlObj.toString();
-      }
-    }
 
     return {
       links: Array.from(links),
-      nextPageUrl,
+      nextPageUrl: this.getNextPageUrl($, url),
     };
   };
 
@@ -105,29 +79,30 @@ class Zome extends BaseScrapper implements IScrapper {
     const uuid = this.getUuidFromUrl(url)!;
     const html = await scrapper.getRenderedHtml(url, {
       waitUntil: "load",
-      waitForSelector: "h3.title",
+      waitForSelector: ".listing-price-main",
       waitForLoadState: "domcontentloaded",
     });
+
     const $ = cheerio.load(html);
 
+    const title = $(".main-info").text().trim();
+    const location = $(".item-info-address-inner-address").text().trim();
     const price = getPrice($);
-    const title = $("h3.title").first().text().trim();
-    const description = $(".txt-detail-items").eq(1).text().trim();
-    const ref = $(".txt-zmid").first().text().trim() || undefined;
-    const energyEfficiency = getEnergyEfficiency($);
+    const description = $(".collapse-description").text().trim() || undefined;
     const photos = getPhotos($);
-    const location = getLocation($);
+    const energyEfficiency =
+      $(".energy-rate-compact-value").text().trim() || undefined;
 
     return property.parse({
       portal: this.id,
       uuid,
-      ref,
+      ref: undefined,
       title,
-      description: description || undefined,
+      description,
       price,
       location,
       link: url,
-      energyEfficiency: energyEfficiency || undefined,
+      energyEfficiency,
       photos: photos.length > 0 ? photos : undefined,
       lastUpdated: undefined,
     });
@@ -196,7 +171,7 @@ class Zome extends BaseScrapper implements IScrapper {
         }
       }
 
-      if (shouldStop) {
+      if (shouldStop || newNextPageUrl?.endsWith(`p=15`)) {
         break;
       }
 
@@ -207,22 +182,15 @@ class Zome extends BaseScrapper implements IScrapper {
     return properties;
   };
 
-  public buildUrl = ({
-    type,
-    minPrice,
-    maxPrice,
-    city,
-  }: TSearchOptions): string => {
-    const types = type.join("/");
-
+  public buildUrl = ({ minPrice, maxPrice, city }: TSearchOptions): string => {
     const url = new URL(
-      `https://www.zome.pt/pt/pesquisar/comprar-casa/${types}/l1-porto/l2-${city}/total-min-${minPrice}/total-max-${maxPrice}/a-elevador/a-garagem/ordenacao-recentes/p-1`,
+      `https://www.properstar.pt/portugal/${city}-loc/venda/apartamento-casas/2p-quartos?price.min=${minPrice}&price.max=${maxPrice}&preferredAmenities=Garage&preferredAmenities=Lift`,
     );
 
     return url.toString();
   };
 }
 
-const zome = new Zome();
+const properstar = new Properstar();
 
-export { zome };
+export { properstar };

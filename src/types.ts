@@ -16,6 +16,7 @@ const property = z.object({
     "imovirtual",
     "custo-justo",
     "zome",
+    "properstar",
   ]),
   uuid: z.string(),
   ref: z.string().optional(),
